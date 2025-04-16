@@ -1,0 +1,174 @@
+{
+  "nodes": {
+    "batprotocol-flake": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "nur-kapack": [
+          "nur-kapack"
+        ]
+      },
+      "locked": {
+        "lastModified": 1736945191,
+        "narHash": "sha256-uQFBsIlOdGg/X3QGgr3CzgkT7XY45WSVlwi9PD4mhY0=",
+        "ref": "refs/heads/main",
+        "rev": "b2fd2de16e92c8a83e4bdf4c95ee5435b43a5bb5",
+        "revCount": 162,
+        "type": "git",
+        "url": "https://framagit.org/batsim/batprotocol"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://framagit.org/batsim/batprotocol"
+      }
+    },
+    "batsim-flake": {
+      "inputs": {
+        "batprotocol": [
+          "batprotocol-flake"
+        ],
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "intervalset": [
+          "intervalset-flake"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "nur-kapack": [
+          "nur-kapack"
+        ]
+      },
+      "locked": {
+        "lastModified": 1738501587,
+        "narHash": "sha256-MXrw6CWLvQ9iCGQyB4NIcYWlZWYFpQwsV+XtPsA89mo=",
+        "ref": "batprotocol",
+        "rev": "ed55a974e29ba1909fe8bb01d3f490b2d9183185",
+        "revCount": 2365,
+        "type": "git",
+        "url": "https://framagit.org/batsim/batsim"
+      },
+      "original": {
+        "ref": "batprotocol",
+        "type": "git",
+        "url": "https://framagit.org/batsim/batsim"
+      }
+    },
+    "flake-utils": {
+      "inputs": {
+        "systems": "systems"
+      },
+      "locked": {
+        "lastModified": 1731533236,
+        "narHash": "sha256-l0KFg5HjrsfsO/JpG+r7fRrqm12kzFHyUHqHCVpMMbI=",
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "rev": "11707dc2f618dd54ca8739b309ec4fc024de578b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "flake-utils",
+        "type": "github"
+      }
+    },
+    "intervalset-flake": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "nur-kapack": [
+          "nur-kapack"
+        ]
+      },
+      "locked": {
+        "lastModified": 1736945570,
+        "narHash": "sha256-EUzxaiecWZhABDVRDjETK1u/PXeOsC2DSvCme3xT9xA=",
+        "ref": "refs/heads/main",
+        "rev": "dba94acc842348cad53aa5a566d73927606216a9",
+        "revCount": 86,
+        "type": "git",
+        "url": "https://framagit.org/batsim/intervalset"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://framagit.org/batsim/intervalset"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1701282334,
+        "narHash": "sha256-MxCVrXY6v4QmfTwIysjjaX0XUhqBbxTWWB4HXtDYsdk=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "057f9aecfb71c4437d2b27d3323df7f93c010b7e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "23.11",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nur-kapack": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1733150407,
+        "narHash": "sha256-v+2ZzB9VDE5vRf98Im1ZJon93stR9ySnW8U2hMIc3oM=",
+        "owner": "oar-team",
+        "repo": "nur-kapack",
+        "rev": "bb7b9d6daa0ffe017281969d7888901074d37a44",
+        "type": "github"
+      },
+      "original": {
+        "owner": "oar-team",
+        "ref": "master",
+        "repo": "nur-kapack",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "batprotocol-flake": "batprotocol-flake",
+        "batsim-flake": "batsim-flake",
+        "flake-utils": "flake-utils",
+        "intervalset-flake": "intervalset-flake",
+        "nixpkgs": "nixpkgs",
+        "nur-kapack": "nur-kapack"
+      }
+    },
+    "systems": {
+      "locked": {
+        "lastModified": 1681028828,
+        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
+        "owner": "nix-systems",
+        "repo": "default",
+        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-systems",
+        "repo": "default",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
