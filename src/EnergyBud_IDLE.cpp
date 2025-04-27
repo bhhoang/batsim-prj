@@ -28,7 +28,7 @@ std::set<uint32_t> available_res;
 double shadow_time = 0.0;
 
 // Variables pour EnergyBud
-double percentage_budget = 1.0;
+double pourcentage_budget = 1.0;
 double max_energy_budget = 1500.8;
 double energy_budget = max_energy_budget * percentage_budget;
 double energy_consumed = 0.0;
