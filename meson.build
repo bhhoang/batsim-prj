@@ -25,3 +25,8 @@ PC_IDLE = shared_library('PC_IDLE', common + ['src/PC_IDLE.cpp'],
   dependencies: deps,
   install: true,
 )
+
+EnergyBud = shared_library('EnergyBud', common + ['src/EnergyBud_IDLE.cpp'],
+  dependencies: deps,
+  install: true,
+)
