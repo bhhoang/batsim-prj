@@ -20,3 +20,8 @@ shared_library('reducePC_IDLE', common + ['src/reducePC_IDLE.cpp'],
   dependencies: deps,
   install: true,
 )
+
+PC_IDLE = shared_library('PC_IDLE', common + ['src/PC_IDLE.cpp'],
+  dependencies: deps,
+  install: true,
+)
