@@ -37,7 +37,7 @@ const double power_per_host = 203.12;
 const double idle_power_per_host = 100.0;
 const double monitoring_interval = 600.0;
 double last_energy_update_time = 0.0;
-double budget_period_duration = 259200.0;
+double budget_period_duration = 600.0;
 double budget_start_time = 0.0;
 
 // Réservation pour le premier job uniquement

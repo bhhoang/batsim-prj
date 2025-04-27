@@ -56,7 +56,7 @@ std::vector<bool> * host_used = nullptr; // Tracks which hosts are in use
 // Energy budget parameters
 bool energy_budget_active = true;  
 double budget_start_time = 0;      
-double budget_end_time = 259200;       // seconds
+double budget_end_time = 600;       // seconds
 double total_energy_budget = 0;    // Will be calculated once we know platform_nb_hosts
 double energy_rate = 0;            // Base rate of energy made available (J/s)
 double available_energy = 0;       // Counter for available energy (C_ea)
