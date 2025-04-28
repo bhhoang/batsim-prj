@@ -1,7 +1,7 @@
 # Topic 3: Backfilling under an Energy Budget
 This guide walks you through setting up the environment and running your first Batsim simulation related to energy-aware scheduling. The goal is to simulate scheduling algorithms like `energyBud_IDLE`, `PC_IDLE`, or `reducePC_IDLE` using Batsim.
 
-Base Article: Towards Energy Budget Control in HPC. PF Dutot, Y Georgiou, D Glesser, L Lefèvre, M Poquet, I Raïs. https://hal.science/hal-01533417v1/file/towards_energy_budget_control_in_hpc.pdf
+Base Article: [Towards Energy Budget Control in HPC. PF Dutot, Y Georgiou, D Glesser, L Lefèvre, M Poquet, I Raïs.](https://hal.science/hal-01533417v1/file/towards_energy_budget_control_in_hpc.pdf)
 
 ---
 
@@ -19,8 +19,8 @@ Base Article: Towards Energy Budget Control in HPC. PF Dutot, Y Georgiou, D Gles
 
 ## 1. Clone the Repository
 ```bash
-git clone https://gitlab.com/mpoquet-courses/sched-with-batsim.git
-cd sched-with-batsim
+git clone https://github.com/bhhoang/batsim-prj
+cd batsim-prj
 ```
 
 ---
