@@ -1,0 +1,40 @@
+<?xml version='1.0'?>
+<!DOCTYPE platform SYSTEM "https://simgrid.org/simgrid.dtd">
+<platform version="4.1">
+
+<zone id="multiple_machines" routing="Full">
+    <host id="node_0" speed="1Gf" core="1"/>
+    <host id="node_1" speed="1Gf" core="1"/>
+    <host id="node_2" speed="1Gf" core="1"/>
+    <host id="node_3" speed="1Gf" core="1"/>
+    <host id="node_4" speed="1Gf" core="1"/>
+    <host id="node_5" speed="1Gf" core="1"/>
+    <host id="node_6" speed="1Gf" core="1"/>
+    <host id="node_7" speed="1Gf" core="1"/>
+    <host id="node_8" speed="1Gf" core="1"/>
+    <host id="node_9" speed="1Gf" core="1"/>
+    <host id="node_10" speed="1Gf" core="1"/>
+    <host id="node_11" speed="1Gf" core="1"/>
+    <host id="node_12" speed="1Gf" core="1"/>
+    <host id="node_13" speed="1Gf" core="1"/>
+    <host id="node_14" speed="1Gf" core="1"/>
+    <host id="node_15" speed="1Gf" core="1"/>
+    <host id="node_16" speed="1Gf" core="1"/>
+    <host id="node_17" speed="1Gf" core="1"/>
+    <host id="node_18" speed="1Gf" core="1"/>
+    <host id="node_19" speed="1Gf" core="1"/>
+    <host id="node_20" speed="1Gf" core="1"/>
+    <host id="node_21" speed="1Gf" core="1"/>
+    <host id="node_22" speed="1Gf" core="1"/>
+    <host id="node_23" speed="1Gf" core="1"/>
+    <host id="node_24" speed="1Gf" core="1"/>
+    <host id="node_25" speed="1Gf" core="1"/>
+    <host id="node_26" speed="1Gf" core="1"/>
+    <host id="node_27" speed="1Gf" core="1"/>
+    <host id="node_28" speed="1Gf" core="1"/>
+    <host id="node_29" speed="1Gf" core="1"/>
+
+    <host id="master_host" speed="1Gf"/>
+</zone>
+
+</platform>
