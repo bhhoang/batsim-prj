@@ -94,7 +94,7 @@ You have two options for running the simulations:
 
 Instead of building and running manually, you can automate everything:
 ```bash
-./analyze.py
+python ./analyze.py
 ```
 This script:
 - Builds the scheduler
