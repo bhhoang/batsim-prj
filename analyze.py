@@ -36,7 +36,7 @@ base_batsim_cmd = [
     'batsim',
     '-l', '', # Will be filled with the library path
     '0', '',
-    '-p', 'assets/2machine.xml',
+    '-p', 'assets/30machine.xml',
     '-w', 'assets/50jobs.json'
 ]
 
