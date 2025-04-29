@@ -16,7 +16,7 @@ deps = [
 
 common = ['src/batsim_edc.h']
 
-shared_library('reducePC_IDLE', common + ['src/reducePC_IDLE.cpp'],
+reducePC_IDLE= shared_library('reducePC_IDLE', common + ['src/reducePC_IDLE.cpp'],
   dependencies: deps,
   install: true,
 )

@@ -40,8 +40,10 @@ base_batsim_cmd = [
     '-w', 'assets/50jobs.json'
 ]
 
-P_IDLE = 100.0
-P_COMP = 203.12
+P_IDLE_M = 100.0
+P_COMP_M = 203.12
+P_COMP_A = 190.74
+P_IDLE_A = 95
 
 # Dictionary to store results for all algorithms
 all_results = {alg['name']: [] for alg in algorithms}
@@ -106,12 +108,15 @@ def parse_output():
     time_idle = float(schedule['time_idle'])
     
     # Calculate metrics
-    utilization = 0
-    if makespan > 0:
-        utilization = time_comp / (nb_machines) # Same as original script
-    max_energy = nb_machines * P_COMP # Same as original script  
-    total_energy = (time_comp * P_COMP) + (time_idle * P_IDLE)
-    norm_energy = total_energy / max_energy if max_energy > 0 else 0
+    total_energy = (time_comp * P_COMP_A) + (time_idle * P_IDLE_A)
+    if(makespan==0):
+        utilization = 0
+        max_energy = nb_machines * P_COMP_M
+        norm_energy = total_energy / max_energy
+    else:
+        utilization = time_comp / (nb_machines * makespan)  
+        max_energy = nb_machines * P_COMP_M * makespan
+        norm_energy = total_energy / max_energy 
     
     # Read jobs file for BSLD
     if not os.path.exists("./out/jobs.csv"):
