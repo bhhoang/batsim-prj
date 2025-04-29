@@ -1,287 +1,238 @@
-#include <cstdint>
-#include <list>
-#include <set>
-#include <unordered_map>
-#include <string>
-#include <sstream>
-#include <batprotocol.hpp>
-#include "batsim_edc.h"
-#include <iostream>
-using namespace batprotocol;
+import subprocess
+import re
+import csv
+import os
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')
+import numpy as np
 
-struct SchedJob {
-    std::string job_id;
-    uint32_t nb_hosts;
-    double walltime;
-};
+percentages = [0.3, 0.49, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+# Define multiple algorithms to compare
+algorithms = [
+    {
+        'name': 'reducePC_IDLE',
+        'cpp_file': 'src/reducePC_IDLE.cpp',
+        'lib_name': 'libreducePC_IDLE.so',
+        'color': 'b' # blue
+    },
+    {
+        'name': 'PC_IDLE',
+        'cpp_file': 'src/PC_IDLE.cpp',
+        'lib_name': 'libPC_IDLE.so',
+        'color': 'r' # red
+    },
+    {
+        'name': 'EnergyBud_IDLE',
+        'cpp_file': 'src/EnergyBud_IDLE.cpp',
+        'lib_name': 'libEnergyBud.so',
+        'color': 'g' # green
+    },
+    # Add more algorithms as needed
+]
 
-MessageBuilder* mb = nullptr;
-bool format_binary = true;
-std::list<SchedJob*>* jobs = nullptr;
-std::unordered_map<std::string, SchedJob*> running_jobs;
-std::unordered_map<std::string, std::set<uint32_t>> job_allocations;
-uint32_t platform_nb_hosts = 0;
-std::set<uint32_t> available_res;
+build_dir = 'build'
+base_batsim_cmd = [
+    'batsim',
+    '-l', '', # Will be filled with the library path
+    '0', '',
+    '-p', 'assets/2machine.xml',
+    '-w', 'assets/50jobs.json'
+]
 
-// EnergyBud variables
-double pourcentage_budget = 1.0;
-double max_energy_budget = 1500.8;
-double energy_budget = max_energy_budget * pourcentage_budget;
-double energy_consumed = 0.0;
-double energy_available = 0.0;
-const double power_per_host = 203.12;       // P_comp from paper
-const double idle_power_per_host = 100.0;   // P_idle from paper
-const double off_power_per_host = 9.75;     // P_off from paper
-const double monitoring_interval = 600.0;   // 10 minutes as in paper  --> not use here
-double last_energy_update_time = 0.0;
-double budget_period_duration = 600.0;   // 10 min
-double budget_start_time = 0.0;
+P_IDLE_M = 100.0
+P_COMP_M = 203.12
+P_COMP_A = 190.74
+P_IDLE_A = 95
 
-// Reservation
-std::string reserved_job_id = "";
-double reserved_energy = 0.0;
-double reserved_time_end = 0.0;
-double elapsed;
+# Dictionary to store results for all algorithms
+all_results = {alg['name']: [] for alg in algorithms}
 
-std::string resources_to_str(const std::set<uint32_t>& resources) {
-    std::stringstream ss;
-    for (auto it = resources.begin(); it != resources.end(); ++it) {
-        if (it != resources.begin()) ss << ",";
-        ss << *it;
-    }
-    return ss.str();
-}
+def ensure_directories():
+    """Make sure necessary directories exist"""
+    os.makedirs(build_dir, exist_ok=True)
+    os.makedirs("out", exist_ok=True)
+    os.makedirs("src", exist_ok=True)
 
-double estimated_energy(SchedJob* job) {
-    return job->nb_hosts * power_per_host * (job->walltime / 3600.0);
-}
+def modify_percentage_budget(cpp_file_path, percentage):
+    """Modifies the percentage budget in the C++ source file"""
+    if not os.path.exists(cpp_file_path):
+        raise FileNotFoundError(f"Source file not found: {cpp_file_path}")
+        
+    with open(cpp_file_path, 'r') as f:
+        lines = f.readlines()
 
-void update_energy(double current_time) {
-    if (budget_start_time == 0.0) {
-        budget_start_time = current_time;
-        last_energy_update_time = current_time;
-        return;
-    }
+    pattern = r'(double\s+pourcentage_budget\s*=\s*)(\d+\.?\d*)(\s*;)'
+    modified = False
 
-    elapsed = current_time - last_energy_update_time;
-    if (elapsed <= 0) return;
-
-    // Rule 1: Make energy available gradually
-    double energy_released = (energy_budget / budget_period_duration) * elapsed;
-    energy_available += energy_released;
-
-    // Calculate current power consumption
-    double active_hosts = platform_nb_hosts - available_res.size();
-    double current_power = (active_hosts * power_per_host) + 
-                          (available_res.size() * idle_power_per_host);
-
-    // Update energy consumption (convert from watts to watt-hours)
-    double energy_used = current_power * (elapsed / 3600.0);
-    energy_consumed += energy_used;
-    energy_available -= energy_used;
-
-    // Ensure we don't go negative on available energy
-    if (energy_available < 0) {
-        energy_available = 0;
-    }
-
-    last_energy_update_time = current_time;
-}
-
-bool has_enough_energy(SchedJob* job, double current_time) {
-    // Calculate available energy considering reservations
-    double available = energy_available;
-    if (!reserved_job_id.empty() && reserved_job_id != job->job_id) {
-        available -= reserved_energy;
-    }
-
-    // Rule 2: Ensure enough energy for entire job duration
-    double required_energy = estimated_energy(job);
-    double time_remaining = budget_period_duration - (current_time - budget_start_time);
+    for i, line in enumerate(lines):
+        if re.search(pattern, line):
+            lines[i] = re.sub(pattern, fr'\g<1>{percentage}\g<3>', line)
+            modified = True
+            break
     
-    // Calculate maximum energy we could get during job execution
-    double max_possible_energy = available + 
-                               (energy_budget / budget_period_duration) * job->walltime;
+    if not modified:
+        print(f"Warning: Pattern not found in {cpp_file_path}")
     
-    return (required_energy <= max_possible_energy) && (available >= 0);
-}
+    with open(cpp_file_path, 'w') as f:
+        f.writelines(lines)
 
-bool can_backfill(SchedJob* job, double current_time) {
-    // Can backfill if job fits before reservation ends or if no reservation exists
-    return (reserved_job_id.empty()) || 
-           (current_time + job->walltime <= reserved_time_end);
-}
+def run_simulation(lib_path):
+    """Executes the Batsim simulation"""
+    cmd = base_batsim_cmd.copy()
+    cmd[2] = os.path.join('./', lib_path)  # Set the library path
+    
+    print(f"Running command: {' '.join(cmd)}")
+    result = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return result
 
-void allocate_and_launch(SchedJob* job, double current_time) {
-    if (available_res.size() < job->nb_hosts) return;
-
-    // Allocate resources
-    std::set<uint32_t> job_resources;
-    auto it = available_res.begin();
-    for (uint32_t i = 0; i < job->nb_hosts; ++i) {
-        job_resources.insert(*it);
-        it = available_res.erase(it);
+def parse_output():
+    """Analyzes output files and calculates metrics"""
+    # Check if output files exist
+    if not os.path.exists("./out/schedule.csv"):
+        print("Warning: schedule.csv not found")
+        return {'utilization': 0, 'norm_energy': 0, 'avg_bsld': 0}
+        
+    # Read schedule file
+    with open("./out/schedule.csv") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+        if not rows:
+            print("Warning: schedule.csv is empty")
+            return {'utilization': 0, 'norm_energy': 0, 'avg_bsld': 0}
+        schedule = rows[0]
+    
+    makespan = float(schedule['makespan'])
+    nb_machines = int(schedule['nb_computing_machines'])
+    time_comp = float(schedule['time_computing'])
+    time_idle = float(schedule['time_idle'])
+    
+    # Calculate metrics
+    total_energy = (time_comp * P_COMP_A) + (time_idle * P_IDLE_A)
+    if(makespan==0):
+        utilization = 0
+        max_energy = nb_machines * P_COMP_M
+        norm_energy = total_energy / max_energy
+    else:
+        utilization = time_comp / (nb_machines * makespan)  
+        max_energy = nb_machines * P_COMP_M * makespan
+        norm_energy = total_energy / max_energy 
+    
+    # Read jobs file for BSLD
+    if not os.path.exists("./out/jobs.csv"):
+        print("Warning: jobs.csv not found")
+        return {'utilization': utilization, 'norm_energy': norm_energy, 'avg_bsld': 0}
+        
+    with open("./out/jobs.csv") as f:
+        jobs = list(csv.DictReader(f))
+    
+    bslds = []
+    for job in jobs:
+        if job['success'] == '1' and job['final_state'] == 'COMPLETED_SUCCESSFULLY':
+            turnaround = float(job['turnaround_time'])
+            walltime = float(job['requested_time'])
+            bsld = max(turnaround / walltime, 1.0)
+            bslds.append(bsld)
+    
+    avg_bsld = np.mean(bslds) if bslds else 0
+    print(f"bsld: {avg_bsld}")
+    print(f"energy: {norm_energy}")
+    print(f"utilization: {utilization}")
+    
+    return {
+        'utilization': utilization,
+        'norm_energy': norm_energy,
+        'avg_bsld': avg_bsld
     }
 
-    // Update running jobs and allocations
-    running_jobs[job->job_id] = job;
-    job_allocations[job->job_id] = job_resources;
-
-    // Deduct energy from available pool
-    energy_available -= estimated_energy(job);
-
-    printf("[%.1f] Launching job %s on resources %s (energy: %.1f Wh)\n",
-           current_time, job->job_id.c_str(), resources_to_str(job_resources).c_str(), 
-           estimated_energy(job));
-
-    mb->add_execute_job(job->job_id, resources_to_str(job_resources));
-}
-
-void reserve_for_first_job(SchedJob* job, double current_time) {
-    reserved_energy = estimated_energy(job);
-    reserved_time_end = current_time + job->walltime;
-    reserved_job_id = job->job_id;
-    printf("[%.1f] Reserved for job %s: %.1f Wh until %.1f\n", 
-           current_time, job->job_id.c_str(), reserved_energy, reserved_time_end);
-}
-
-void cancel_reservations() {
-    reserved_job_id = "";
-    reserved_energy = 0.0;
-    reserved_time_end = 0.0;
-}
-
-uint8_t batsim_edc_init(const uint8_t* data, uint32_t size, uint32_t flags) {
-    format_binary = ((flags & BATSIM_EDC_FORMAT_BINARY) != 0);
-    mb = new MessageBuilder(!format_binary);
-    jobs = new std::list<SchedJob*>();
-    return 0;
-}
-
-uint8_t batsim_edc_deinit() {
-    delete mb;
-    if (jobs) {
-        for (auto* job : *jobs) delete job;
-        delete jobs;
-    }
-    running_jobs.clear();
-    job_allocations.clear();
-    return 0;
-}
-
-uint8_t batsim_edc_take_decisions(
-    const uint8_t* what_happened,
-    uint32_t what_happened_size,
-    uint8_t** decisions,
-    uint32_t* decisions_size) {
-
-    auto* parsed = deserialize_message(*mb, !format_binary, what_happened);
-    double current_time = parsed->now();
-    mb->clear(current_time);
-
-    for (unsigned int i = 0; i < parsed->events()->size(); ++i) {
-        auto event = (*parsed->events())[i];
-        switch (event->event_type()) {
-            case fb::Event_BatsimHelloEvent:
-                mb->add_edc_hello("EnergyBud", "1.0.0");
-                break;
-
-            case fb::Event_SimulationBeginsEvent: {
-                auto simu_begins = event->event_as_SimulationBeginsEvent();
-                platform_nb_hosts = simu_begins->computation_host_number();
-                available_res.clear();
-                for (uint32_t i = 0; i < platform_nb_hosts; i++) {
-                    available_res.insert(i);
-                }
-                printf("[%.1f] Platform initialized with %d hosts\n", 
-                       current_time, platform_nb_hosts);
-            } break;
+def plot_comparative_results(all_results):
+    """Generates comparative plots of results for all algorithms"""
+    metrics = ['utilization', 'norm_energy', 'avg_bsld']
+    titles = ['System Utilization', 'Energy Consumption', 'Average Bounded Slowdown']
+    y_labels = ['Normalized Utilization', 'Normalized Energy', 'Average BSLD']
+    
+    plt.figure(figsize=(18, 6))
+    
+    for i, metric in enumerate(metrics):
+        plt.subplot(1, 3, i+1)
+        
+        for alg_name, results in all_results.items():
+            if not results:
+                continue
+                
+            percentages = [r['percentage']*100 for r in results]
+            values = [r[metric] for r in results]
             
-            case fb::Event_JobSubmittedEvent: {
-                auto parsed_job = event->event_as_JobSubmittedEvent();
-                auto job = new SchedJob{
-                    parsed_job->job_id()->str(),
-                    static_cast<uint8_t>(parsed_job->job()->resource_request()), // FIX: avoid warning narrowing
-                    parsed_job->job()->walltime(),
-
-                    
-                };
-                if (job->nb_hosts > platform_nb_hosts) {
-                    mb->add_reject_job(job->job_id);
-                    delete job;
-                } else {
-                    jobs->push_back(job);
-                    printf("[%.1f] Job %s submitted (%d hosts, %.1fs)\n",
-                           current_time, job->job_id.c_str(),
-                           job->nb_hosts, job->walltime);
-                }
-            } break;
+            # Find the algorithm's color from the algorithms list
+            color = next((a['color'] for a in algorithms if a['name'] == alg_name), 'k')
             
-            case fb::Event_JobCompletedEvent: {
-                auto job_id = event->event_as_JobCompletedEvent()->job_id()->str();
-                if (running_jobs.count(job_id)) {
-                    for (uint32_t host : job_allocations[job_id]) {
-                        available_res.insert(host);
-                    }
-                    running_jobs.erase(job_id);
-                    job_allocations.erase(job_id);
-                    printf("[%.1f] Job %s completed\n", current_time, job_id.c_str());
-                }
-                if (job_id == reserved_job_id) {
-                    cancel_reservations();
-                }
-            } break;
+            plt.plot(percentages, values, f'{color}o-', label=alg_name)
+        
+        plt.title(titles[i])
+        plt.xlabel('Energy Budget (%)')
+        plt.ylabel(y_labels[i])
+        plt.grid(True)
+        plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig('comparative_results.png')
+    print("Plot saved as 'comparative_results.png'")
+
+# Main execution
+def main():
+    ensure_directories()
+    
+    for algorithm in algorithms:
+        print(f"\n=== Processing algorithm: {algorithm['name']} ===")
+        
+        # Check if source file exists
+        if not os.path.exists(algorithm['cpp_file']):
+            print(f"Warning: Source file {algorithm['cpp_file']} not found. Skipping algorithm.")
+            continue
             
-            default: break;
-        }
-    }
+        algorithm_results = []
+        
+        for p in percentages:
+            print(f"\nProcessing {algorithm['name']} with {p*100}% budget...")
+            try:
+                # Modify budget percentage in source file
+                modify_percentage_budget(algorithm['cpp_file'], p)
+                
+                # Build the library
+                build_cmd = ['ninja', '-C', build_dir]
+                print(f"Building with: {' '.join(build_cmd)}")
+                build_result = subprocess.run(build_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                
+                # Set the library path for this algorithm
+                lib_path = os.path.join(build_dir, algorithm['lib_name'])
+                
+                # Run simulation
+                run_simulation(lib_path)
+                
+                # Parse output
+                metrics = parse_output()
+                algorithm_results.append({'percentage': p, **metrics})
+                
+            except FileNotFoundError as e:
+                print(f"File not found error: {e}")
+            except subprocess.CalledProcessError as e:
+                print(f"Command failed: {e}")
+                print(f"stdout: {e.stdout.decode('utf-8')}")
+                print(f"stderr: {e.stderr.decode('utf-8')}")
+            except Exception as e:
+                print(f"Error for {p*100}%: {e}")
+        
+        # Store results for this algorithm
+        all_results[algorithm['name']] = algorithm_results
+        
+        # Display results for this algorithm
+        print(f"\nResults for {algorithm['name']}:")
+        print("Budget | Utilization | Energy | BSLD")
+        for r in algorithm_results:
+            print(f"{r['percentage']*100:5.0f}% | {r['utilization']:10.3f} | {r['norm_energy']:7.3f} | {r['avg_bsld']:5.3f}")
+    
+    # Generate comparative plots
+    plot_comparative_results(all_results)
 
-    update_energy(current_time);
-
-    // 1. try to run all possible jobs
-    for (auto it = jobs->begin(); it != jobs->end();) {
-        SchedJob* job = *it;
-        if (available_res.size() >= job->nb_hosts && has_enough_energy(job, current_time)) {
-            allocate_and_launch(job, current_time);
-            it = jobs->erase(it);
-        } else {
-            ++it;
-        }
-    }
-
-    // 2. if first job blocked, reserve and try to run it
-    if (!jobs->empty() && reserved_job_id.empty()) {
-        SchedJob* first_job = jobs->front();
-        reserve_for_first_job(first_job, current_time);
-
-        if (available_res.size() >= first_job->nb_hosts && has_enough_energy(first_job, current_time)) {
-            jobs->pop_front();
-            allocate_and_launch(first_job, current_time);
-            cancel_reservations();
-        }
-    }
-
-    // 3. try backfilling
-    if (!reserved_job_id.empty()) {
-        for (auto it = jobs->begin(); it != jobs->end();) {
-            SchedJob* job = *it;
-            if (job->job_id != reserved_job_id &&
-                available_res.size() >= job->nb_hosts &&
-                has_enough_energy(job, current_time) &&
-                can_backfill(job, current_time)) {
-                allocate_and_launch(job, current_time);
-                it = jobs->erase(it);
-            } else {
-                ++it;
-            }
-        }
-    }
-
-    printf("[%.1f] Status: %lu jobs queued, %lu/%d hosts free, Energy: %.1f/%.1f Wh (reserved: %.1f)\n",
-           current_time, jobs->size(), available_res.size(), platform_nb_hosts,
-           energy_available, energy_budget, reserved_energy);
-
-    mb->finish_message(current_time);
-    serialize_message(*mb, !format_binary, const_cast<const uint8_t**>(decisions), decisions_size);
-    return 0;
-}
+if __name__ == "__main__":
+    main()
