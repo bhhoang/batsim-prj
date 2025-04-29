@@ -1,5 +1,3 @@
-// 2
-
 #include <cstdint>
 #include <list>
 #include <set>
@@ -13,11 +11,10 @@ using namespace batprotocol;
 
 struct SchedJob {
     std::string job_id;
-    uint8_t nb_hosts;
+    uint32_t nb_hosts;
     double walltime;
 };
 
-// Variables globales
 MessageBuilder* mb = nullptr;
 bool format_binary = true;
 std::list<SchedJob*>* jobs = nullptr;
@@ -25,52 +22,26 @@ std::unordered_map<std::string, SchedJob*> running_jobs;
 std::unordered_map<std::string, std::set<uint32_t>> job_allocations;
 uint32_t platform_nb_hosts = 0;
 std::set<uint32_t> available_res;
-double shadow_time = 0.0;
 
-// Variables pour EnergyBud
+// EnergyBud variables
 double pourcentage_budget = 1.0;
 double max_energy_budget = 1500.8;
-double energy_budget = max_energy_budget * percentage_budget;
+double energy_budget = max_energy_budget * pourcentage_budget;
 double energy_consumed = 0.0;
 double energy_available = 0.0;
-const double power_per_host = 203.12;
-const double idle_power_per_host = 100.0;
-const double monitoring_interval = 1.0;
+const double power_per_host = 203.12;       // P_comp from paper
+const double idle_power_per_host = 100.0;   // P_idle from paper
+const double off_power_per_host = 9.75;     // P_off from paper
+const double monitoring_interval = 600.0;   // 10 minutes as in paper  --> not use here
 double last_energy_update_time = 0.0;
-double budget_period_duration = 600.0;
+double budget_period_duration = 600.0;   // 10 min
 double budget_start_time = 0.0;
 
-// Réservation pour le premier job uniquement
+// Reservation
+std::string reserved_job_id = "";
 double reserved_energy = 0.0;
 double reserved_time_end = 0.0;
-std::string reserved_job_id = "";
-
-uint8_t batsim_edc_init(const uint8_t* data, uint32_t size, uint32_t flags) {
-    format_binary = ((flags & BATSIM_EDC_FORMAT_BINARY) != 0);
-    if ((flags & (BATSIM_EDC_FORMAT_BINARY | BATSIM_EDC_FORMAT_JSON)) != flags) {
-        printf("Unknown flags used, cannot initialize myself.\n");
-        return 1;
-    }
-
-    mb = new MessageBuilder(!format_binary);
-    jobs = new std::list<SchedJob*>();
-    return 0;
-}
-
-uint8_t batsim_edc_deinit() {
-    delete mb;
-    mb = nullptr;
-
-    if (jobs != nullptr) {
-        for (auto* job : *jobs) delete job;
-        delete jobs;
-        jobs = nullptr;
-    }
-
-    running_jobs.clear();
-    job_allocations.clear();
-    return 0;
-}
+double elapsed;
 
 std::string resources_to_str(const std::set<uint32_t>& resources) {
     std::stringstream ss;
@@ -81,93 +52,121 @@ std::string resources_to_str(const std::set<uint32_t>& resources) {
     return ss.str();
 }
 
+double estimated_energy(SchedJob* job) {
+    return job->nb_hosts * power_per_host * (job->walltime / 3600.0);
+}
+
 void update_energy(double current_time) {
     if (budget_start_time == 0.0) {
         budget_start_time = current_time;
         last_energy_update_time = current_time;
-        energy_budget = max_energy_budget * percentage_budget;
-        energy_available = energy_budget / budget_period_duration * monitoring_interval;
         return;
     }
 
-    double elapsed = current_time - last_energy_update_time;
+    elapsed = current_time - last_energy_update_time;
     if (elapsed <= 0) return;
 
-    // Libération progressive de l'énergie
+    // Rule 1: Make energy available gradually
     double energy_released = (energy_budget / budget_period_duration) * elapsed;
     energy_available += energy_released;
 
-    // Consommation estimée
+    // Calculate current power consumption
     double active_hosts = platform_nb_hosts - available_res.size();
-    double estimated_consumption = (active_hosts * power_per_host + 
-                                  available_res.size() * idle_power_per_host) * 
-                                  (elapsed / 3600.0);
+    double current_power = (active_hosts * power_per_host) + 
+                          (available_res.size() * idle_power_per_host);
 
-    energy_consumed += estimated_consumption;
-    energy_available -= estimated_consumption;
+    // Update energy consumption (convert from watts to watt-hours)
+    double energy_used = current_power * (elapsed / 3600.0);
+    energy_consumed += energy_used;
+    energy_available -= energy_used;
+
+    // Ensure we don't go negative on available energy
+    if (energy_available < 0) {
+        energy_available = 0;
+    }
 
     last_energy_update_time = current_time;
 }
 
 bool has_enough_energy(SchedJob* job, double current_time) {
+    // Calculate available energy considering reservations
     double available = energy_available;
-    if (reserved_job_id != job->job_id) {
+    if (!reserved_job_id.empty() && reserved_job_id != job->job_id) {
         available -= reserved_energy;
     }
+
+    // Rule 2: Ensure enough energy for entire job duration
+    double required_energy = estimated_energy(job);
+    double time_remaining = budget_period_duration - (current_time - budget_start_time);
     
-    double required_energy = job->nb_hosts * power_per_host * (job->walltime / 3600.0);
-    double future_available = available + (energy_budget / budget_period_duration) * job->walltime;
+    // Calculate maximum energy we could get during job execution
+    double max_possible_energy = available + 
+                               (energy_budget / budget_period_duration) * job->walltime;
     
-    return (required_energy <= future_available) && (available >= 0);
+    return (required_energy <= max_possible_energy) && (available >= 0);
 }
 
 bool can_backfill(SchedJob* job, double current_time) {
-    return (current_time + job->walltime <= reserved_time_end) || (reserved_job_id.empty());
+    // Can backfill if job fits before reservation ends or if no reservation exists
+    return (reserved_job_id.empty()) || 
+           (current_time + job->walltime <= reserved_time_end);
 }
 
 void allocate_and_launch(SchedJob* job, double current_time) {
-    if (available_res.size() < job->nb_hosts) {
-        printf("Not enough resources for job %s (requested %d, available %lu)\n",
-               job->job_id.c_str(), job->nb_hosts, available_res.size());
-        return;
-    }
+    if (available_res.size() < job->nb_hosts) return;
 
+    // Allocate resources
     std::set<uint32_t> job_resources;
     auto it = available_res.begin();
-    for (uint8_t i = 0; i < job->nb_hosts; ++i) {
+    for (uint32_t i = 0; i < job->nb_hosts; ++i) {
         job_resources.insert(*it);
         it = available_res.erase(it);
     }
 
+    // Update running jobs and allocations
     running_jobs[job->job_id] = job;
     job_allocations[job->job_id] = job_resources;
-    
-    double required_energy = job->nb_hosts * power_per_host * (job->walltime / 3600.0);
-    energy_available -= required_energy;
+
+    // Deduct energy from available pool
+    energy_available -= estimated_energy(job);
 
     printf("[%.1f] Launching job %s on resources %s (energy: %.1f Wh)\n",
-           current_time, job->job_id.c_str(),
-           resources_to_str(job_resources).c_str(), required_energy);
-    
+           current_time, job->job_id.c_str(), resources_to_str(job_resources).c_str(), 
+           estimated_energy(job));
+
     mb->add_execute_job(job->job_id, resources_to_str(job_resources));
 }
 
 void reserve_for_first_job(SchedJob* job, double current_time) {
-    reserved_energy = job->nb_hosts * power_per_host * (job->walltime / 3600.0);
+    reserved_energy = estimated_energy(job);
     reserved_time_end = current_time + job->walltime;
     reserved_job_id = job->job_id;
-    printf("[%.1f] Reserved for job %s: %.1f Wh until %.1f\n",
+    printf("[%.1f] Reserved for job %s: %.1f Wh until %.1f\n", 
            current_time, job->job_id.c_str(), reserved_energy, reserved_time_end);
 }
 
 void cancel_reservations() {
-    if (!reserved_job_id.empty()) {
-        printf("[Canceling reservation for job %s (%.1f Wh freed)]\n",
-               reserved_job_id.c_str(), reserved_energy);
-        reserved_energy = 0.0;
-        reserved_time_end = 0.0;
-        reserved_job_id = "";
+    reserved_job_id = "";
+    reserved_energy = 0.0;
+    reserved_time_end = 0.0;
+}
+
+uint8_t batsim_edc_init(const uint8_t* data, uint32_t size, uint32_t flags) {
+    format_binary = ((flags & BATSIM_EDC_FORMAT_BINARY) != 0);
+    mb = new MessageBuilder(!format_binary);
+    jobs = new std::list<SchedJob*>();
+    return 0;
+}
+
+uint8_t batsim_edc_deinit() {
+    delete mb;
+    if (jobs) {
+        for (auto* job : *jobs) delete job;
+        delete jobs;
     }
+    running_jobs.clear();
+    job_allocations.clear();
+    return 0;
 }
 
 uint8_t batsim_edc_take_decisions(
@@ -175,12 +174,11 @@ uint8_t batsim_edc_take_decisions(
     uint32_t what_happened_size,
     uint8_t** decisions,
     uint32_t* decisions_size) {
-    
+
     auto* parsed = deserialize_message(*mb, !format_binary, what_happened);
     double current_time = parsed->now();
     mb->clear(current_time);
 
-    // Traitement des événements
     for (unsigned int i = 0; i < parsed->events()->size(); ++i) {
         auto event = (*parsed->events())[i];
         switch (event->event_type()) {
@@ -203,8 +201,10 @@ uint8_t batsim_edc_take_decisions(
                 auto parsed_job = event->event_as_JobSubmittedEvent();
                 auto job = new SchedJob{
                     parsed_job->job_id()->str(),
-                    parsed_job->job()->resource_request(),
-                    parsed_job->job()->walltime()
+                    static_cast<uint8_t>(parsed_job->job()->resource_request()), // FIX: avoid warning narrowing
+                    parsed_job->job()->walltime(),
+
+                    
                 };
                 if (job->nb_hosts > platform_nb_hosts) {
                     mb->add_reject_job(job->job_id);
@@ -224,12 +224,9 @@ uint8_t batsim_edc_take_decisions(
                         available_res.insert(host);
                     }
                     running_jobs.erase(job_id);
-                    printf("[%.1f] Job %s completed, %lu hosts freed\n",
-                           current_time, job_id.c_str(), job_allocations[job_id].size());
                     job_allocations.erase(job_id);
-
+                    printf("[%.1f] Job %s completed\n", current_time, job_id.c_str());
                 }
-                // Ajouter dans JobCompletedEvent
                 if (job_id == reserved_job_id) {
                     cancel_reservations();
                 }
@@ -238,12 +235,11 @@ uint8_t batsim_edc_take_decisions(
             default: break;
         }
     }
-    
+
     update_energy(current_time);
 
-    // 1. Essayer de lancer les jobs qui peuvent s'exécuter immédiatement
-    auto it = jobs->begin();
-    while (it != jobs->end()) {
+    // 1. try to run all possible jobs
+    for (auto it = jobs->begin(); it != jobs->end();) {
         SchedJob* job = *it;
         if (available_res.size() >= job->nb_hosts && has_enough_energy(job, current_time)) {
             allocate_and_launch(job, current_time);
@@ -253,24 +249,21 @@ uint8_t batsim_edc_take_decisions(
         }
     }
 
-    // 2. Gestion du premier job bloquant
+    // 2. if first job blocked, reserve and try to run it
     if (!jobs->empty() && reserved_job_id.empty()) {
         SchedJob* first_job = jobs->front();
-        jobs->pop_front();
-        
-        if (available_res.size() >= first_job->nb_hosts && 
-            has_enough_energy(first_job, current_time)) {
+        reserve_for_first_job(first_job, current_time);
+
+        if (available_res.size() >= first_job->nb_hosts && has_enough_energy(first_job, current_time)) {
+            jobs->pop_front();
             allocate_and_launch(first_job, current_time);
-        } else {
-            reserve_for_first_job(first_job, current_time);
-            jobs->push_front(first_job);
+            cancel_reservations();
         }
     }
 
-    // 3. Backfilling
+    // 3. try backfilling
     if (!reserved_job_id.empty()) {
-        it = jobs->begin();
-        while (it != jobs->end()) {
+        for (auto it = jobs->begin(); it != jobs->end();) {
             SchedJob* job = *it;
             if (job->job_id != reserved_job_id &&
                 available_res.size() >= job->nb_hosts &&
@@ -284,19 +277,6 @@ uint8_t batsim_edc_take_decisions(
         }
     }
 
-    // 4. Vérifier si le job réservé peut maintenant démarrer
-    if (!reserved_job_id.empty() && !jobs->empty() && 
-        jobs->front()->job_id == reserved_job_id) {
-        SchedJob* first_job = jobs->front();
-        if (available_res.size() >= first_job->nb_hosts && 
-            has_enough_energy(first_job, current_time)) {
-            jobs->pop_front();
-            allocate_and_launch(first_job, current_time);
-            cancel_reservations();
-        }
-    }
-
-    // Logs d'état
     printf("[%.1f] Status: %lu jobs queued, %lu/%d hosts free, Energy: %.1f/%.1f Wh (reserved: %.1f)\n",
            current_time, jobs->size(), available_res.size(), platform_nb_hosts,
            energy_available, energy_budget, reserved_energy);
